@@ -171,6 +171,7 @@ footer{color:var(--ink-muted);font-size:12px;margin-top:26px;border-top:1px soli
       </select>
     </div>
   </div>
+  <div id="origem-box"></div>
   <div id="midia-groups"></div>
 </section>
 
@@ -208,17 +209,20 @@ const CFG = {
     id: '1OHKZHSmLJoWxEY42fgLCtWWO78R6PWjJ5wgw017SjdI',
     gid: { meta_ads:'0', meta_demografia:'1815408766', meta_horario:'2123635175', parametros:'278952921' }
   },
-  // Planilha [KAP] Gestão de Leads — aba B.I. (não excluir)
+  // Planilha-ponte pública: espelha via IMPORTRANGE a aba B.I. (não excluir)
+  // da [KAP] Gestão de Leads, sem carregar os dados pessoais da aba Backup.
   leads: {
-    id: '1rfpuISAptiozcEr3SbSlgWQ8Z6brM_SNCTCyY0WHP3M',
-    gid: { bi:'18548536' }
-  },
-  // Regra de classificação LP x formulário nativo, pelo nome da campanha
-  classificacao: {
-    lp:     /\bLP\b/i,     // nome contém "LP"          -> Landing page
-    nativo: /\bFORM\b/i    // nome contém "FORM"        -> Formulário nativo
+    id: '1b1sMl4YlD33dKxW8DNepVtPEd94oBIRIkY9SS9b6wt4',
+    gid: { bi:'0', origem:'1075349699' }
   }
 };
+
+// Rótulos das três entradas de lead, como vêm da aba origem_leads
+const ORIGENS = [
+  { id:'LP',                rotulo:'Landing page',      cor:'--s1' },
+  { id:'SITE',              rotulo:'Site',              cor:'--s2' },
+  { id:'FORMULARIO_NATIVO', rotulo:'Formulário nativo', cor:'--s3' }
+];
 
 const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 const DIAS  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -279,7 +283,7 @@ async function fetchCSV(url){
 
 /* ===================== estado ===================== */
 
-const DATA = { metaAds:[], demo:[], hora:[], bi:[], params:{}, erros:[] };
+const DATA = { metaAds:[], demo:[], hora:[], bi:[], origem:[], params:{}, erros:[] };
 const CHARTS = {};
 
 /* ===================== carga ===================== */
@@ -307,6 +311,14 @@ async function load(){
         DATA.bi = rows
           .filter(r => r[0] && MESES.includes(String(r[0]).trim().toUpperCase()))
           .map(r => ({ mes: String(r[0]).trim().toUpperCase(), cells: r }));
+    }],
+    ['origem',  csvUrl(CFG.leads.id, CFG.leads.gid.origem),      rows=>{
+        // Colunas: mes (yyyy-mm), origem, leads
+        DATA.origem = toObjects(rows).map(o=>({
+          mes: MESES[parseInt(String(o.mes||'').slice(5,7),10)-1] || null,
+          origem: (o.origem||'').trim(),
+          leads: num(o.leads)
+        })).filter(o=>o.mes);
     }]
   ];
   await Promise.all(jobs.map(async ([name,url,fn])=>{
@@ -381,7 +393,8 @@ function ticketMedio(){
 function renderKPIs(meses){
   const mt=metaTotais(meses), bt=biTotais(meses), tk=ticketMedio();
   const opp=bt['Oportunidade ganha'], reun=bt['Reunião'];
-  const cac = opp>0 ? mt.inv/opp : null;
+  // Sem investimento não existe CAC. Mostrar R$ 0,00 seria mentira.
+  const cac = (opp>0 && mt.inv>0) ? mt.inv/opp : null;
   const receita = opp*tk;
   const roi = (mt.inv>0 && tk>0) ? (receita-mt.inv)/mt.inv : null;
 
@@ -490,10 +503,70 @@ function renderSeries(meses){
 
 /* ===================== render: mídia ===================== */
 
-function classifica(nome){
-  if(CFG.classificacao.lp.test(nome))     return 'Landing page';
-  if(CFG.classificacao.nativo.test(nome)) return 'Formulário nativo';
-  return 'Não classificado';
+// Origem do lead: vem da aba origem_leads, que classifica pela URL de
+// conversão registrada no CRM. Não depende do nome da campanha.
+function renderOrigem(meses){
+  const host = document.getElementById('origem-box');
+  const set = new Set(meses);
+  const linhas = DATA.origem.filter(o=>set.has(o.mes));
+
+  if(!linhas.length){
+    host.innerHTML = `<div class="card"><h2>Origem dos leads</h2>
+      <div class="empty">Sem dados de origem no período selecionado.</div></div>`;
+    return;
+  }
+
+  const mesesComLead = MESES.filter(m=>linhas.some(o=>o.mes===m));
+  const serie = ORIGENS.map(og=>({
+    ...og,
+    dados: mesesComLead.map(m=>
+      linhas.filter(o=>o.mes===m && o.origem===og.id).reduce((s,o)=>s+o.leads,0))
+  }));
+  const totalGeral = serie.reduce((s,x)=>s+x.dados.reduce((a,b)=>a+b,0),0);
+
+  host.innerHTML = `<div class="card">
+    <h2>Origem dos leads</h2>
+    <p class="h-note">De onde o lead entrou, pela URL de conversão registrada no CRM.
+      Landing page = financeiras.kappi.io, Site = kappi.io, Formulário nativo = preenchido dentro do anúncio.</p>
+    <div class="legend">${serie.map(s=>
+      `<span><span class="swatch" style="background:var(${s.cor})"></span>${s.rotulo}</span>`).join('')}</div>
+    <div class="chartbox"><canvas id="c-origem"></canvas></div>
+    <details open>
+      <summary>Ver dados em tabela</summary>
+      <div class="scroll"><table>
+        <thead><tr><th>Mês</th>${serie.map(s=>`<th>${s.rotulo}</th>`).join('')}<th>Total</th></tr></thead>
+        <tbody>${mesesComLead.map((m,i)=>{
+          const t = serie.reduce((s,x)=>s+x.dados[i],0);
+          return `<tr><td>${m}</td>${serie.map(s=>`<td>${fmtInt(s.dados[i])}</td>`).join('')}<td>${fmtInt(t)}</td></tr>`;
+        }).join('')}</tbody>
+        <tfoot><tr><td>Total</td>${serie.map(s=>
+          `<td>${fmtInt(s.dados.reduce((a,b)=>a+b,0))}</td>`).join('')}<td>${fmtInt(totalGeral)}</td></tr></tfoot>
+      </table></div>
+    </details>
+  </div>`;
+
+  if(semChart('c-origem')) return;
+  if(CHARTS['c-origem']) CHARTS['c-origem'].destroy();
+  CHARTS['c-origem'] = new Chart(document.getElementById('c-origem'),{
+    type:'bar',
+    data:{labels:mesesComLead, datasets:serie.map(s=>({
+      label:s.rotulo, data:s.dados, backgroundColor:cssv(s.cor),
+      borderRadius:4, borderSkipped:'start',
+      borderColor:cssv('--surface-1'), borderWidth:2
+    }))},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmtInt(c.parsed.y)} leads`}}},
+      scales:{
+        x:{grid:{display:false},border:{color:cssv('--axis')},
+           ticks:{color:cssv('--ink-muted'),font:{size:11}}},
+        y:{beginAtZero:true,grid:{color:cssv('--grid')},border:{display:false},
+           ticks:{color:cssv('--ink-muted'),font:{size:11},precision:0}}
+      }
+    }
+  });
 }
 
 function renderMidia(meses){
@@ -519,31 +592,28 @@ function renderMidia(meses){
     a.cli+=num(r.cliques);   a.leads+=num(r.leads);
   });
 
-  const grupos={'Landing page':[],'Formulário nativo':[],'Não classificado':[]};
-  Object.values(byName).forEach(a=>grupos[classifica(a.nome)].push(a));
-
-  host.innerHTML = Object.entries(grupos).filter(([,arr])=>arr.length).map(([g,arr])=>{
-    arr.sort((a,b)=>b.inv-a.inv);
-    const t=arr.reduce((o,a)=>({inv:o.inv+a.inv,imp:o.imp+a.imp,alc:o.alc+a.alc,cli:o.cli+a.cli,leads:o.leads+a.leads}),
+  const arr = Object.values(byName).sort((a,b)=>b.inv-a.inv);
+  const t = arr.reduce((o,a)=>({inv:o.inv+a.inv,imp:o.imp+a.imp,alc:o.alc+a.alc,cli:o.cli+a.cli,leads:o.leads+a.leads}),
                        {inv:0,imp:0,alc:0,cli:0,leads:0});
-    const line=a=>`<tr><td>${a.nome}</td><td>${fmtBRL(a.inv)}</td><td>${fmtInt(a.imp)}</td>
-      <td>${fmtInt(a.alc)}</td><td>${fmtInt(a.cli)}</td>
-      <td>${a.imp>0?fmtDec(a.cli/a.imp*100)+'%':'—'}</td>
-      <td>${a.cli>0?fmtBRL(a.inv/a.cli):'—'}</td>
-      <td>${fmtInt(a.leads)}</td>
-      <td>${a.leads>0?fmtBRL(a.inv/a.leads):'—'}</td></tr>`;
-    return `<div class="card"><h2>${g}</h2>
-      <p class="h-note">${arr.length} ${arr.length===1?'item':'itens'} no nível ${nivel}${g==='Não classificado'?' — o nome não contém LP nem FORM':''}</p>
-      <div class="scroll"><table>
-      <thead><tr><th>Nome</th><th>Investido</th><th>Impressões</th><th>Alcance</th><th>Cliques</th>
-        <th>CTR</th><th>CPC</th><th>Leads</th><th>CPL</th></tr></thead>
-      <tbody>${arr.map(line).join('')}</tbody>
-      <tfoot><tr><td>Total</td><td>${fmtBRL(t.inv)}</td><td>${fmtInt(t.imp)}</td><td>${fmtInt(t.alc)}</td>
-        <td>${fmtInt(t.cli)}</td><td>${t.imp>0?fmtDec(t.cli/t.imp*100)+'%':'—'}</td>
-        <td>${t.cli>0?fmtBRL(t.inv/t.cli):'—'}</td><td>${fmtInt(t.leads)}</td>
-        <td>${t.leads>0?fmtBRL(t.inv/t.leads):'—'}</td></tr></tfoot>
-      </table></div></div>`;
-  }).join('');
+  const line=a=>`<tr><td>${a.nome}</td><td>${fmtBRL(a.inv)}</td><td>${fmtInt(a.imp)}</td>
+    <td>${fmtInt(a.alc)}</td><td>${fmtInt(a.cli)}</td>
+    <td>${a.imp>0?fmtDec(a.cli/a.imp*100)+'%':'—'}</td>
+    <td>${a.cli>0?fmtBRL(a.inv/a.cli):'—'}</td>
+    <td>${fmtInt(a.leads)}</td>
+    <td>${a.leads>0?fmtBRL(a.inv/a.leads):'—'}</td></tr>`;
+
+  host.innerHTML = `<div class="card">
+    <h2>Desempenho por ${nivel}</h2>
+    <p class="h-note">${arr.length} ${arr.length===1?'item':'itens'} no período</p>
+    <div class="scroll"><table>
+    <thead><tr><th>Nome</th><th>Investido</th><th>Impressões</th><th>Alcance</th><th>Cliques</th>
+      <th>CTR</th><th>CPC</th><th>Leads</th><th>CPL</th></tr></thead>
+    <tbody>${arr.map(line).join('')}</tbody>
+    <tfoot><tr><td>Total</td><td>${fmtBRL(t.inv)}</td><td>${fmtInt(t.imp)}</td><td>${fmtInt(t.alc)}</td>
+      <td>${fmtInt(t.cli)}</td><td>${t.imp>0?fmtDec(t.cli/t.imp*100)+'%':'—'}</td>
+      <td>${t.cli>0?fmtBRL(t.inv/t.cli):'—'}</td><td>${fmtInt(t.leads)}</td>
+      <td>${t.leads>0?fmtBRL(t.inv/t.leads):'—'}</td></tr></tfoot>
+    </table></div></div>`;
 }
 
 /* ===================== render: público ===================== */
@@ -630,7 +700,7 @@ function renderPublico(meses){
 function renderAll(){
   const meses=janela();
   [['KPIs',renderKPIs],['funil',renderFunil],['séries',renderSeries],
-   ['mídia',renderMidia],['público',renderPublico]].forEach(([nome,fn])=>{
+   ['origem',renderOrigem],['mídia',renderMidia],['público',renderPublico]].forEach(([nome,fn])=>{
     try { fn(meses); }
     catch(e){ console.error('Falha ao renderizar '+nome+':',e); DATA.erros.push(nome); }
   });
@@ -688,9 +758,10 @@ function setupTabs(){
 
   document.getElementById('sources').innerHTML =
     'Fontes: planilha de dados brutos de mídia (abas meta_ads, meta_demografia, meta_horario, parametros) '+
-    'e planilha [KAP] Gestão de Leads, aba B.I. (não excluir). '+
-    'Funil: Entrou→contato, Conectou→conexão, Negócio→qualificação, Reunião→reunião, VENDAS→oportunidade ganha. '+
-    'Totais de mídia contam só linhas de nível campanha.' +
+    'e planilha-ponte que espelha a aba B.I. (não excluir) da [KAP] Gestão de Leads. '+
+    'Funil: Entrou = contato, Conectou = conexão, Negócio = qualificação, Reunião, VENDAS = oportunidade ganha. '+
+    'Totais de mídia contam só linhas de nível campanha. '+
+    'Origem do lead vem da URL de conversão registrada no CRM, não do nome da campanha.' +
     (DATA.erros.length ? ' <strong>Falha ao ler: '+DATA.erros.join(', ')+
       ' — verifique se as duas planilhas estão compartilhadas como "qualquer pessoa com o link".</strong>' : '');
 })();
