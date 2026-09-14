@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kappi — Performance de Tráfego</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+<style>
+:root{
+  color-scheme: light;
+  --surface-1:#fcfcfb; --plane:#f9f9f7;
+  --ink-1:#0b0b0b; --ink-2:#52514e; --ink-muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,0.10);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a;
+  --seq-1:#cde2fb; --seq-2:#9ec5f4; --seq-3:#5598e7; --seq-4:#2a78d6; --seq-5:#184f95;
+  --ord-1:#86b6ef; --ord-2:#5598e7; --ord-3:#2a78d6; --ord-4:#1c5cab; --ord-5:#104281;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --surface-1:#1a1a19; --plane:#0d0d0d;
+    --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+    --seq-1:#104281; --seq-2:#1c5cab; --seq-3:#2a78d6; --seq-4:#5598e7; --seq-5:#9ec5f4;
+    --ord-1:#184f95; --ord-2:#1c5cab; --ord-3:#2a78d6; --ord-4:#3987e5; --ord-5:#86b6ef;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --surface-1:#1a1a19; --plane:#0d0d0d;
+  --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70;
+  --seq-1:#104281; --seq-2:#1c5cab; --seq-3:#2a78d6; --seq-4:#5598e7; --seq-5:#9ec5f4;
+  --ord-1:#184f95; --ord-2:#1c5cab; --ord-3:#2a78d6; --ord-4:#3987e5; --ord-5:#86b6ef;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--plane);color:var(--ink-1);
+  font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1120px;margin:0 auto;padding-block:20px;padding-left:16px;padding-right:16px}
+header.top{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;margin-bottom:4px}
+h1{font-size:19px;margin:0;letter-spacing:-.01em}
+.sub{color:var(--ink-2);font-size:13px;margin:2px 0 18px}
+button{font:inherit;cursor:pointer}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--grid)}
+.tabs button{background:none;border:0;padding:9px 14px;color:var(--ink-2);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink-1);border-bottom-color:var(--s1);font-weight:600}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:18px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-muted)}
+select,input[type=text]{font:inherit;padding:6px 8px;background:var(--surface-1);color:var(--ink-1);
+  border:1px solid var(--axis);border-radius:6px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px}
+.kpi{background:var(--surface-1);border:1px solid var(--ring);border-radius:10px;padding:13px 14px}
+.kpi .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-muted)}
+.kpi .v{font-size:25px;line-height:1.15;margin-top:5px;letter-spacing:-.02em}
+.kpi .n{font-size:11px;color:var(--ink-2);margin-top:3px}
+.card{background:var(--surface-1);border:1px solid var(--ring);border-radius:10px;padding:15px;margin-bottom:16px}
+.card h2{font-size:14px;margin:0 0 3px}
+.card .h-note{font-size:12px;color:var(--ink-2);margin:0 0 13px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.chartbox{position:relative;height:230px}
+.funnel{display:flex;flex-direction:column;gap:2px}
+.fstage{display:grid;grid-template-columns:150px 1fr 62px 62px;gap:10px;align-items:center}
+.fstage .fname{font-size:12px;color:var(--ink-2)}
+.ftrack{background:var(--plane);border-radius:4px;overflow:hidden;height:24px}
+.ffill{height:100%;border-radius:0 4px 4px 0;min-width:2px}
+.fval{font-size:13px;font-weight:600;color:var(--ink-1);
+  font-variant-numeric:tabular-nums;text-align:right}
+.fconv{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 9px;text-align:right;border-bottom:1px solid var(--grid);white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal;min-width:170px}
+thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-muted);
+  font-weight:600;border-bottom:1px solid var(--axis)}
+tbody tr:hover{background:var(--plane)}
+tfoot td{font-weight:600;border-top:1px solid var(--axis);border-bottom:0}
+.scroll{overflow-x:auto}
+details{margin-top:12px}
+summary{cursor:pointer;font-size:12px;color:var(--ink-2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink-2);margin-bottom:10px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.swatch{width:10px;height:10px;border-radius:3px;display:inline-block}
+.hm{display:grid;grid-template-columns:42px repeat(24,1fr);gap:2px;min-width:620px}
+.hm .hl{font-size:10px;color:var(--ink-muted);display:flex;align-items:center}
+.hm .hc{aspect-ratio:1;border-radius:2px;background:var(--plane)}
+.empty{padding:26px 14px;text-align:center;color:var(--ink-2);font-size:13px;
+  border:1px dashed var(--axis);border-radius:8px}
+.flag{background:var(--surface-1);border:1px solid var(--ring);border-left:3px solid var(--warn);
+  border-radius:8px;padding:11px 13px;font-size:13px;color:var(--ink-2);margin-bottom:16px}
+.hidden{display:none!important}
+footer{color:var(--ink-muted);font-size:12px;margin-top:26px;border-top:1px solid var(--grid);padding-top:12px}
+@media (max-width:520px){
+  .fstage{grid-template-columns:1fr;gap:3px}
+  .kpi .v{font-size:22px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>Kappi — Performance de Tráfego</h1>
+    <p class="sub" id="sub">Carregando dados…</p>
+  </div>
+  <button id="theme" style="background:var(--surface-1);border:1px solid var(--axis);border-radius:6px;padding:6px 11px;color:var(--ink-2)">Tema</button>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-tab="cliente">Visão do Cliente</button>
+  <button role="tab" aria-selected="false" data-tab="midia">Mídia</button>
+  <button role="tab" aria-selected="false" data-tab="publico">Público</button>
+</nav>
+
+<div class="bar">
+  <div class="field">
+    <label for="mesDe">Mês inicial</label>
+    <select id="mesDe"></select>
+  </div>
+  <div class="field">
+    <label for="mesAte">Mês final</label>
+    <select id="mesAte"></select>
+  </div>
+  <div class="field">
+    <label for="ticket">Ticket médio (R$)</label>
+    <input type="text" id="ticket" inputmode="decimal" style="width:120px">
+  </div>
+</div>
+
+<!-- ================= VISÃO DO CLIENTE ================= -->
+<section id="tab-cliente">
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <h2>Funil comercial</h2>
+    <p class="h-note" id="funnel-note"></p>
+    <div class="funnel" id="funnel"></div>
+    <details>
+      <summary>Ver dados do funil em tabela</summary>
+      <div class="scroll"><table id="funnel-table"></table></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Investimento, leads e oportunidades por mês</h2>
+    <p class="h-note">Três gráficos separados de propósito: são três grandezas com escalas diferentes, e um eixo duplo faria você ler uma relação que não existe.</p>
+    <div class="grid3">
+      <div><div class="chartbox"><canvas id="c-inv"></canvas></div></div>
+      <div><div class="chartbox"><canvas id="c-leads"></canvas></div></div>
+      <div><div class="chartbox"><canvas id="c-opp"></canvas></div></div>
+    </div>
+    <details>
+      <summary>Ver dados em tabela</summary>
+      <div class="scroll"><table id="serie-table"></table></div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= MÍDIA ================= -->
+<section id="tab-midia" class="hidden">
+  <div class="bar">
+    <div class="field">
+      <label for="nivel">Nível</label>
+      <select id="nivel">
+        <option value="campanha">Campanha</option>
+        <option value="conjunto">Conjunto</option>
+        <option value="criativo">Criativo</option>
+      </select>
+    </div>
+  </div>
+  <div id="midia-groups"></div>
+</section>
+
+<!-- ================= PÚBLICO ================= -->
+<section id="tab-publico" class="hidden">
+  <div class="grid3">
+    <div class="card"><h2>Idade</h2><p class="h-note">Leads por faixa</p>
+      <div class="chartbox"><canvas id="c-idade"></canvas></div></div>
+    <div class="card"><h2>Gênero</h2><p class="h-note">Leads por gênero</p>
+      <div class="chartbox"><canvas id="c-genero"></canvas></div></div>
+    <div class="card"><h2>Localização</h2><p class="h-note">Top 10 por leads</p>
+      <div class="chartbox"><canvas id="c-local"></canvas></div></div>
+  </div>
+  <div class="card">
+    <h2>Hora x dia da semana</h2>
+    <p class="h-note">Leads por hora de entrada. Escala de uma cor só: mais escuro, mais leads.</p>
+    <div id="heat"></div>
+  </div>
+</section>
+
+<footer>
+  <div id="sources"></div>
+</footer>
+
+</div>
+
+<script>
+/* =====================================================================
+   CONFIGURAÇÃO — os dois únicos blocos que você mexe
+   ===================================================================== */
+
+const CFG = {
+  // Planilha de dados brutos de mídia (criada para este dashboard)
+  raw: {
+    id: '1OHKZHSmLJoWxEY42fgLCtWWO78R6PWjJ5wgw017SjdI',
+    gid: { meta_ads:'0', meta_demografia:'1815408766', meta_horario:'2123635175', parametros:'278952921' }
+  },
+  // Planilha [KAP] Gestão de Leads — aba B.I. (não excluir)
+  leads: {
+    id: '1rfpuISAptiozcEr3SbSlgWQ8Z6brM_SNCTCyY0WHP3M',
+    gid: { bi:'18548536' }
+  },
+  // Regra de classificação LP x formulário nativo, pelo nome da campanha
+  classificacao: {
+    lp:     /\bLP\b/i,     // nome contém "LP"          -> Landing page
+    nativo: /\bFORM\b/i    // nome contém "FORM"        -> Formulário nativo
+  }
+};
+
+const MESES = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+const DIAS  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+// Mapa do funil: coluna da aba B.I. (índice 0-based) -> etapa
+const FUNIL = [
+  { etapa:'Contato',            col:1  },  // Entrou Dia
+  { etapa:'Conexão',            col:3  },  // Conectou Dia
+  { etapa:'Qualificação',       col:5  },  // Negócio Dia
+  { etapa:'Reunião',            col:9  },  // Reunião
+  { etapa:'Oportunidade ganha', col:11 }   // VENDAS
+];
+
+/* ===================== utilidades ===================== */
+
+const csvUrl = (id,gid) =>
+  `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&headers=0&gid=${gid}`;
+
+function parseCSV(text){
+  const rows=[]; let row=[], field='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"';i++;} else q=false; }
+      else field+=c;
+    } else if(c==='"'){ q=true; }
+    else if(c===','){ row.push(field); field=''; }
+    else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+    else if(c!=='\r'){ field+=c; }
+  }
+  row.push(field);
+  if(row.length>1||row[0]!=='') rows.push(row);
+  return rows;
+}
+
+// Número em formato brasileiro ou americano -> Number
+function num(v){
+  if(v==null) return 0;
+  let s=String(v).trim().replace(/R\$|\s|%/g,'');
+  if(s===''||s==='#DIV/0!'||s==='#N/A') return 0;
+  if(s.includes(',')&&s.includes('.')) s=s.replace(/\./g,'').replace(',','.');
+  else if(s.includes(',')) s=s.replace(',','.');
+  const n=parseFloat(s);
+  return isFinite(n)?n:0;
+}
+
+const fmtBRL = n => n.toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:2});
+const fmtInt = n => n.toLocaleString('pt-BR',{maximumFractionDigits:0});
+const fmtPct = n => (n*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+const fmtDec = (n,d=2) => n.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const cssv   = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+async function fetchCSV(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return parseCSV(await r.text());
+}
+
+/* ===================== estado ===================== */
+
+const DATA = { metaAds:[], demo:[], hora:[], bi:[], params:{}, erros:[] };
+const CHARTS = {};
+
+/* ===================== carga ===================== */
+
+// Converte linhas brutas (sem header) em objetos, usando a 1ª linha como header
+function toObjects(rows){
+  if(!rows.length) return [];
+  const head = rows[0].map(h=>h.trim().toLowerCase());
+  return rows.slice(1)
+    .filter(r=>r.some(c=>String(c).trim()!==''))
+    .map(r=>{ const o={}; head.forEach((h,i)=>o[h]=r[i]!==undefined?String(r[i]).trim():''); return o; });
+}
+
+async function load(){
+  const jobs = [
+    ['metaAds', csvUrl(CFG.raw.id, CFG.raw.gid.meta_ads),        rows=>DATA.metaAds=toObjects(rows)],
+    ['demo',    csvUrl(CFG.raw.id, CFG.raw.gid.meta_demografia), rows=>DATA.demo   =toObjects(rows)],
+    ['hora',    csvUrl(CFG.raw.id, CFG.raw.gid.meta_horario),    rows=>DATA.hora   =toObjects(rows)],
+    ['params',  csvUrl(CFG.raw.id, CFG.raw.gid.parametros),      rows=>{
+        toObjects(rows).forEach(o=>{ if(o.parametro) DATA.params[o.parametro]=o.valor; });
+    }],
+    ['bi',      csvUrl(CFG.leads.id, CFG.leads.gid.bi),          rows=>{
+        // A aba B.I. tem linhas em branco e cabeçalho fora da primeira linha.
+        // Critério robusto: linha cuja coluna A é a sigla de um mês.
+        DATA.bi = rows
+          .filter(r => r[0] && MESES.includes(String(r[0]).trim().toUpperCase()))
+          .map(r => ({ mes: String(r[0]).trim().toUpperCase(), cells: r }));
+    }]
+  ];
+  await Promise.all(jobs.map(async ([name,url,fn])=>{
+    try { fn(await fetchCSV(url)); }
+    catch(e){ DATA.erros.push(name); }
+  }));
+}
+
+/* ===================== filtros de período ===================== */
+
+function mesesComDados(){
+  const set = new Set(DATA.bi.filter(r=>FUNIL.some(f=>num(r.cells[f.col])>0)).map(r=>r.mes));
+  DATA.metaAds.forEach(r=>{ const m=mesDe(r.data); if(m) set.add(m); });
+  const out = MESES.filter(m=>set.has(m));
+  return out.length?out:MESES.slice(0,new Date().getMonth()+1);
+}
+
+function mesDe(dateStr){
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateStr||'').trim());
+  if(m) return MESES[parseInt(m[2],10)-1];
+  const b=/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})/.exec(String(dateStr||'').trim());
+  if(b) return MESES[parseInt(b[2],10)-1];
+  return null;
+}
+
+function janela(){
+  const de=document.getElementById('mesDe').value, ate=document.getElementById('mesAte').value;
+  let i=MESES.indexOf(de), j=MESES.indexOf(ate);
+  if(i<0)i=0; if(j<0)j=MESES.length-1;
+  if(i>j)[i,j]=[j,i];
+  return MESES.slice(i,j+1);
+}
+
+/* ===================== agregações ===================== */
+
+// Só linhas de nível campanha entram nos totais — somar os três níveis
+// contaria o mesmo investimento três vezes.
+function metaTotais(meses){
+  const set=new Set(meses);
+  let inv=0,leads=0,imp=0,cli=0;
+  DATA.metaAds.forEach(r=>{
+    if((r.nivel||'').toLowerCase()!=='campanha') return;
+    if(!set.has(mesDe(r.data))) return;
+    inv+=num(r.investido); leads+=num(r.leads); imp+=num(r.impressoes); cli+=num(r.cliques);
+  });
+  return {inv,leads,imp,cli};
+}
+
+function biTotais(meses){
+  const set=new Set(meses); const out={};
+  FUNIL.forEach(f=>out[f.etapa]=0);
+  DATA.bi.forEach(r=>{ if(!set.has(r.mes)) return;
+    FUNIL.forEach(f=>out[f.etapa]+=num(r.cells[f.col])); });
+  return out;
+}
+
+function serieMensal(meses){
+  return meses.map(m=>{
+    const mt=metaTotais([m]), bt=biTotais([m]);
+    return { mes:m, inv:mt.inv, leadsMidia:mt.leads,
+             contato:bt['Contato'], reuniao:bt['Reunião'], opp:bt['Oportunidade ganha'] };
+  });
+}
+
+/* ===================== render: KPIs ===================== */
+
+function ticketMedio(){
+  const v=num(document.getElementById('ticket').value);
+  return v>0?v:0;
+}
+
+function renderKPIs(meses){
+  const mt=metaTotais(meses), bt=biTotais(meses), tk=ticketMedio();
+  const opp=bt['Oportunidade ganha'], reun=bt['Reunião'];
+  const cac = opp>0 ? mt.inv/opp : null;
+  const receita = opp*tk;
+  const roi = (mt.inv>0 && tk>0) ? (receita-mt.inv)/mt.inv : null;
+
+  const cards=[
+    {k:'Investido',            v: mt.inv>0?fmtBRL(mt.inv):'—',
+      n: mt.inv>0?'Meta Ads, nível campanha':'aguardando dados de mídia'},
+    {k:'Leads (mídia)',        v: mt.leads>0?fmtInt(mt.leads):'—',
+      n: mt.leads>0?'resultados de lead no Meta':'aguardando dados de mídia'},
+    {k:'Contatos (comercial)', v: fmtInt(bt['Contato']), n:'aba B.I.'},
+    {k:'Reuniões',             v: fmtInt(reun), n:'aba B.I.'},
+    {k:'Oportunidades ganhas', v: fmtInt(opp), n:'aba B.I. — coluna VENDAS'},
+    {k:'CAC',                  v: cac!=null?fmtBRL(cac):'—',
+      n: cac!=null?'investido ÷ oportunidades':(opp>0?'falta investimento':'sem oportunidades no período')},
+    {k:'ROI',                  v: roi!=null?fmtPct(roi):'—',
+      n: roi!=null?'(oport. × ticket − investido) ÷ investido':'preencha o ticket médio'}
+  ];
+  document.getElementById('kpis').innerHTML = cards.map(c=>
+    `<div class="kpi"><div class="k">${c.k}</div><div class="v">${c.v}</div><div class="n">${c.n}</div></div>`
+  ).join('');
+}
+
+/* ===================== render: funil ===================== */
+
+function renderFunil(meses){
+  const bt=biTotais(meses);
+  const vals=FUNIL.map(f=>({etapa:f.etapa, v:bt[f.etapa]}));
+  const max=Math.max(...vals.map(v=>v.v),1);
+  const ord=['--ord-1','--ord-2','--ord-3','--ord-4','--ord-5'];
+
+  document.getElementById('funnel-note').textContent =
+    'Fonte: aba B.I. (não excluir). Taxa à direita é a conversão da etapa anterior para esta.';
+
+  document.getElementById('funnel').innerHTML = vals.map((s,i)=>{
+    const prev = i>0?vals[i-1].v:null;
+    const conv = (prev && prev>0) ? fmtPct(s.v/prev) : (i===0?'—':'—');
+    const w = max>0 ? Math.max((s.v/max)*100,0.4) : 0;
+    return `<div class="fstage">
+      <div class="fname">${s.etapa}</div>
+      <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${ord[i]})"></div></div>
+      <div class="fval">${fmtInt(s.v)}</div>
+      <div class="fconv">${conv}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('funnel-table').innerHTML =
+    `<thead><tr><th>Etapa</th><th>Volume</th><th>Conversão da etapa anterior</th></tr></thead><tbody>`+
+    vals.map((s,i)=>{
+      const prev=i>0?vals[i-1].v:null;
+      return `<tr><td>${s.etapa}</td><td>${fmtInt(s.v)}</td><td>${prev&&prev>0?fmtPct(s.v/prev):'—'}</td></tr>`;
+    }).join('')+`</tbody>`;
+}
+
+/* ===================== render: séries mensais ===================== */
+
+// Se a biblioteca de gráficos não carregar, a página continua útil:
+// cada caixa de gráfico avisa e as tabelas de dados seguem valendo.
+function semChart(id){
+  if(window.Chart) return false;
+  const c=document.getElementById(id);
+  if(c && c.parentElement && !c.parentElement.querySelector('.empty')){
+    c.parentElement.innerHTML='<div class="empty">Biblioteca de gráficos não carregou. '+
+      'Use as tabelas em "Ver dados".</div>';
+  }
+  return true;
+}
+
+function lineChart(id,label,labels,values,color,fmt){
+  if(semChart(id)) return;
+  if(CHARTS[id]) CHARTS[id].destroy();
+  const ctx=document.getElementById(id);
+  CHARTS[id]=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[{
+      label, data:values, borderColor:color, backgroundColor:color,
+      borderWidth:2, pointRadius:4, pointHoverRadius:8, pointBorderColor:cssv('--surface-1'),
+      pointBorderWidth:2, tension:0.25, spanGaps:true
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        title:{display:true,text:label,color:cssv('--ink-1'),font:{size:13,weight:'600'},align:'start',padding:{bottom:8}},
+        tooltip:{callbacks:{label:c=>` ${label}: ${fmt(c.parsed.y)}`}}
+      },
+      scales:{
+        x:{grid:{display:false},border:{color:cssv('--axis')},ticks:{color:cssv('--ink-muted'),font:{size:11}}},
+        y:{beginAtZero:true,grid:{color:cssv('--grid')},border:{display:false},
+           ticks:{color:cssv('--ink-muted'),font:{size:11},callback:v=>fmt(v)}}
+      }
+    }
+  });
+}
+
+function renderSeries(meses){
+  const s=serieMensal(meses), labels=s.map(x=>x.mes);
+  lineChart('c-inv','Investimento',labels,s.map(x=>x.inv),cssv('--s1'),v=>fmtBRL(v));
+  lineChart('c-leads','Leads',labels,s.map(x=>x.leadsMidia||x.contato),cssv('--s2'),v=>fmtInt(v));
+  lineChart('c-opp','Oportunidades ganhas',labels,s.map(x=>x.opp),cssv('--s3'),v=>fmtInt(v));
+
+  document.getElementById('serie-table').innerHTML =
+    `<thead><tr><th>Mês</th><th>Investido</th><th>Leads (mídia)</th><th>Contatos (B.I.)</th><th>Reuniões</th><th>Oportunidades</th></tr></thead><tbody>`+
+    s.map(x=>`<tr><td>${x.mes}</td><td>${fmtBRL(x.inv)}</td><td>${fmtInt(x.leadsMidia)}</td><td>${fmtInt(x.contato)}</td><td>${fmtInt(x.reuniao)}</td><td>${fmtInt(x.opp)}</td></tr>`).join('')+
+    `</tbody>`;
+}
+
+/* ===================== render: mídia ===================== */
+
+function classifica(nome){
+  if(CFG.classificacao.lp.test(nome))     return 'Landing page';
+  if(CFG.classificacao.nativo.test(nome)) return 'Formulário nativo';
+  return 'Não classificado';
+}
+
+function renderMidia(meses){
+  const nivel=document.getElementById('nivel').value;
+  const set=new Set(meses);
+  const rows=DATA.metaAds.filter(r=>(r.nivel||'').toLowerCase()===nivel && set.has(mesDe(r.data)));
+  const host=document.getElementById('midia-groups');
+
+  if(!rows.length){
+    host.innerHTML=`<div class="card"><h2>Tabela de mídia</h2>
+      <div class="empty">Sem dados de mídia na planilha ainda.<br>
+      As abas <strong>meta_ads</strong>, <strong>meta_demografia</strong> e <strong>meta_horario</strong>
+      estão criadas com os cabeçalhos, mas vazias — o cenário do Make (Etapa 2) ainda não foi montado.</div></div>`;
+    return;
+  }
+
+  // agrega por nome dentro do nível
+  const byName={};
+  rows.forEach(r=>{
+    const n=r.nome||'(sem nome)';
+    const a=byName[n]||(byName[n]={nome:n,inv:0,imp:0,alc:0,cli:0,leads:0});
+    a.inv+=num(r.investido); a.imp+=num(r.impressoes); a.alc+=num(r.alcance);
+    a.cli+=num(r.cliques);   a.leads+=num(r.leads);
+  });
+
+  const grupos={'Landing page':[],'Formulário nativo':[],'Não classificado':[]};
+  Object.values(byName).forEach(a=>grupos[classifica(a.nome)].push(a));
+
+  host.innerHTML = Object.entries(grupos).filter(([,arr])=>arr.length).map(([g,arr])=>{
+    arr.sort((a,b)=>b.inv-a.inv);
+    const t=arr.reduce((o,a)=>({inv:o.inv+a.inv,imp:o.imp+a.imp,alc:o.alc+a.alc,cli:o.cli+a.cli,leads:o.leads+a.leads}),
+                       {inv:0,imp:0,alc:0,cli:0,leads:0});
+    const line=a=>`<tr><td>${a.nome}</td><td>${fmtBRL(a.inv)}</td><td>${fmtInt(a.imp)}</td>
+      <td>${fmtInt(a.alc)}</td><td>${fmtInt(a.cli)}</td>
+      <td>${a.imp>0?fmtDec(a.cli/a.imp*100)+'%':'—'}</td>
+      <td>${a.cli>0?fmtBRL(a.inv/a.cli):'—'}</td>
+      <td>${fmtInt(a.leads)}</td>
+      <td>${a.leads>0?fmtBRL(a.inv/a.leads):'—'}</td></tr>`;
+    return `<div class="card"><h2>${g}</h2>
+      <p class="h-note">${arr.length} ${arr.length===1?'item':'itens'} no nível ${nivel}${g==='Não classificado'?' — o nome não contém LP nem FORM':''}</p>
+      <div class="scroll"><table>
+      <thead><tr><th>Nome</th><th>Investido</th><th>Impressões</th><th>Alcance</th><th>Cliques</th>
+        <th>CTR</th><th>CPC</th><th>Leads</th><th>CPL</th></tr></thead>
+      <tbody>${arr.map(line).join('')}</tbody>
+      <tfoot><tr><td>Total</td><td>${fmtBRL(t.inv)}</td><td>${fmtInt(t.imp)}</td><td>${fmtInt(t.alc)}</td>
+        <td>${fmtInt(t.cli)}</td><td>${t.imp>0?fmtDec(t.cli/t.imp*100)+'%':'—'}</td>
+        <td>${t.cli>0?fmtBRL(t.inv/t.cli):'—'}</td><td>${fmtInt(t.leads)}</td>
+        <td>${t.leads>0?fmtBRL(t.inv/t.leads):'—'}</td></tr></tfoot>
+      </table></div></div>`;
+  }).join('');
+}
+
+/* ===================== render: público ===================== */
+
+function barChart(id,labels,values,color){
+  if(semChart(id)) return;
+  if(CHARTS[id]) CHARTS[id].destroy();
+  CHARTS[id]=new Chart(document.getElementById(id),{
+    type:'bar',
+    data:{labels,datasets:[{data:values,backgroundColor:color,borderRadius:4,
+      borderSkipped:'start',borderColor:cssv('--surface-1'),borderWidth:2}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,indexAxis:'y',
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${fmtInt(c.parsed.x)} leads`}}},
+      scales:{
+        x:{beginAtZero:true,grid:{color:cssv('--grid')},border:{display:false},
+           ticks:{color:cssv('--ink-muted'),font:{size:11},precision:0}},
+        y:{grid:{display:false},border:{color:cssv('--axis')},ticks:{color:cssv('--ink-2'),font:{size:11}}}
+      }
+    }
+  });
+}
+
+function agrupaDemo(campo,meses,top){
+  const set=new Set(meses), acc={};
+  DATA.demo.forEach(r=>{ if(!set.has(mesDe(r.data))) return;
+    const k=(r[campo]||'').trim()||'(não informado)';
+    acc[k]=(acc[k]||0)+num(r.leads); });
+  let arr=Object.entries(acc).sort((a,b)=>b[1]-a[1]);
+  if(top) arr=arr.slice(0,top);
+  return arr;
+}
+
+function renderPublico(meses){
+  const semDados = !DATA.demo.length;
+  [['c-idade','idade',null,'--s1'],['c-genero','genero',null,'--s2'],['c-local','localizacao',10,'--s3']]
+    .forEach(([id,campo,top,cv])=>{
+      const box=document.getElementById(id).parentElement;
+      if(semDados){ box.innerHTML='<div class="empty">Sem dados de demografia ainda — aba meta_demografia vazia.</div>'; return; }
+      const arr=agrupaDemo(campo,meses,top);
+      barChart(id,arr.map(a=>a[0]),arr.map(a=>a[1]),cssv(cv));
+    });
+
+  // heatmap hora x dia — fonte: meta_horario (agregado, sem dado pessoal)
+  const heat=document.getElementById('heat');
+  if(!DATA.hora.length){
+    heat.innerHTML='<div class="empty">Sem dados de horário ainda — aba meta_horario vazia.</div>';
+    return;
+  }
+  const set=new Set(meses);
+  const cells={}; let max=0;
+  DATA.hora.forEach(r=>{
+    const m=mesDe(r.data); if(!set.has(m)) return;
+    const d=new Date(String(r.data).trim()+'T12:00:00Z');
+    if(isNaN(d)) return;
+    const wd=d.getUTCDay(), h=Math.max(0,Math.min(23,Math.round(num(r.hora))));
+    const k=wd+'-'+h;
+    cells[k]=(cells[k]||0)+num(r.leads);
+    if(cells[k]>max) max=cells[k];
+  });
+  const steps=['--seq-1','--seq-2','--seq-3','--seq-4','--seq-5'];
+  let html='<div class="scroll"><div class="hm">';
+  html+='<div class="hl"></div>'+Array.from({length:24},(_,h)=>
+    `<div class="hl" style="justify-content:center">${h%3===0?h:''}</div>`).join('');
+  for(let d=0;d<7;d++){
+    html+=`<div class="hl">${DIAS[d]}</div>`;
+    for(let h=0;h<24;h++){
+      const v=cells[d+'-'+h]||0;
+      const bg=v===0?'var(--plane)':`var(${steps[Math.min(4,Math.floor(v/max*4.999))]})`;
+      html+=`<div class="hc" style="background:${bg}" title="${DIAS[d]} ${h}h — ${fmtInt(v)} leads"></div>`;
+    }
+  }
+  html+='</div></div>';
+  html+=`<div class="legend" style="margin-top:10px">
+    <span><span class="swatch" style="background:var(--plane);border:1px solid var(--axis)"></span>0</span>`+
+    steps.map((s,i)=>`<span><span class="swatch" style="background:var(${s})"></span>até ${fmtInt(Math.ceil(max*(i+1)/5))}</span>`).join('')+
+    `</div>`;
+  heat.innerHTML=html;
+}
+
+/* ===================== orquestração ===================== */
+
+// Cada bloco é isolado: se um quebrar, os outros continuam desenhando.
+function renderAll(){
+  const meses=janela();
+  [['KPIs',renderKPIs],['funil',renderFunil],['séries',renderSeries],
+   ['mídia',renderMidia],['público',renderPublico]].forEach(([nome,fn])=>{
+    try { fn(meses); }
+    catch(e){ console.error('Falha ao renderizar '+nome+':',e); DATA.erros.push(nome); }
+  });
+}
+
+function setupPeriodo(){
+  const disp=mesesComDados();
+  const de=document.getElementById('mesDe'), ate=document.getElementById('mesAte');
+  MESES.forEach(m=>{
+    de.insertAdjacentHTML('beforeend',`<option value="${m}">${m}</option>`);
+    ate.insertAdjacentHTML('beforeend',`<option value="${m}">${m}</option>`);
+  });
+  const pIni=DATA.params['periodo_analise_inicio'], pFim=DATA.params['periodo_analise_fim'];
+  de.value  = (pIni && MESES.includes(pIni.toUpperCase())) ? pIni.toUpperCase() : disp[0];
+  ate.value = (pFim && MESES.includes(pFim.toUpperCase())) ? pFim.toUpperCase() : disp[disp.length-1];
+}
+
+function setupTabs(){
+  document.querySelectorAll('.tabs button').forEach(b=>{
+    b.addEventListener('click',()=>{
+      document.querySelectorAll('.tabs button').forEach(x=>x.setAttribute('aria-selected',x===b));
+      ['cliente','midia','publico'].forEach(t=>
+        document.getElementById('tab-'+t).classList.toggle('hidden',t!==b.dataset.tab));
+    });
+  });
+}
+
+(async function init(){
+  setupTabs();
+  await load();
+
+  const tk=DATA.params['ticket_medio'];
+  document.getElementById('ticket').value = tk && num(tk)>0 ? String(tk) : '';
+
+  setupPeriodo();
+  renderAll();
+
+  ['mesDe','mesAte','nivel'].forEach(id=>
+    document.getElementById(id).addEventListener('change',renderAll));
+  document.getElementById('ticket').addEventListener('input',()=>{
+    renderKPIs(janela());
+  });
+
+  document.getElementById('theme').addEventListener('click',()=>{
+    const cur=document.documentElement.getAttribute('data-theme');
+    const isDark = cur ? cur==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', isDark?'light':'dark');
+    renderAll();
+  });
+
+  const semMidia = !DATA.metaAds.length;
+  document.getElementById('sub').textContent =
+    'Atualizado em ' + new Date().toLocaleString('pt-BR') +
+    (semMidia ? ' — dados de mídia ainda não alimentados' : '');
+
+  document.getElementById('sources').innerHTML =
+    'Fontes: planilha de dados brutos de mídia (abas meta_ads, meta_demografia, meta_horario, parametros) '+
+    'e planilha [KAP] Gestão de Leads, aba B.I. (não excluir). '+
+    'Funil: Entrou→contato, Conectou→conexão, Negócio→qualificação, Reunião→reunião, VENDAS→oportunidade ganha. '+
+    'Totais de mídia contam só linhas de nível campanha.' +
+    (DATA.erros.length ? ' <strong>Falha ao ler: '+DATA.erros.join(', ')+
+      ' — verifique se as duas planilhas estão compartilhadas como "qualquer pessoa com o link".</strong>' : '');
+})();
+</script>
+</body>
+</html>
