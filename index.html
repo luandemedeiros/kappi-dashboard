@@ -63,6 +63,9 @@ select,input[type=text]{font:inherit;padding:6px 8px;background:var(--surface-1)
 .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
 .chartbox{position:relative;height:230px}
 .funnel{display:flex;flex-direction:column;gap:2px}
+.fsub{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+      color:var(--ink-2);margin:14px 0 6px}
+.funnel:first-of-type .fsub{margin-top:4px}
 .fstage{display:grid;grid-template-columns:150px 1fr 62px 62px;gap:10px;align-items:center}
 .fstage .fname{font-size:12px;color:var(--ink-2)}
 .ftrack{background:var(--plane);border-radius:4px;overflow:hidden;height:24px}
@@ -135,9 +138,10 @@ footer{color:var(--ink-muted);font-size:12px;margin-top:26px;border-top:1px soli
   <div class="kpis" id="kpis"></div>
 
   <div class="card">
-    <h2>Funil comercial</h2>
+    <h2>Funil completo</h2>
     <p class="h-note" id="funnel-note"></p>
     <div class="funnel" id="funnel"></div>
+    <div class="funnel" id="funnel2"></div>
     <details>
       <summary>Ver dados do funil em tabela</summary>
       <div class="scroll"><table id="funnel-table"></table></div>
@@ -358,13 +362,14 @@ function janela(){
 // contaria o mesmo investimento três vezes.
 function metaTotais(meses){
   const set=new Set(meses);
-  let inv=0,leads=0,imp=0,cli=0;
+  let inv=0,leads=0,imp=0,cli=0,alc=0;
   DATA.metaAds.forEach(r=>{
     if((r.nivel||'').toLowerCase()!=='campanha') return;
     if(!set.has(mesDe(r.data))) return;
-    inv+=num(r.investido); leads+=num(r.leads); imp+=num(r.impressoes); cli+=num(r.cliques);
+    inv+=num(r.investido); leads+=num(r.leads); imp+=num(r.impressoes);
+    cli+=num(r.cliques);   alc+=num(r.alcance);
   });
-  return {inv,leads,imp,cli};
+  return {inv,leads,imp,cli,alc};
 }
 
 function biTotais(meses){
@@ -419,31 +424,70 @@ function renderKPIs(meses){
 /* ===================== render: funil ===================== */
 
 function renderFunil(meses){
-  const bt=biTotais(meses);
-  const vals=FUNIL.map(f=>({etapa:f.etapa, v:bt[f.etapa]}));
-  const max=Math.max(...vals.map(v=>v.v),1);
+  const bt=biTotais(meses), mt=metaTotais(meses);
   const ord=['--ord-1','--ord-2','--ord-3','--ord-4','--ord-5'];
 
+  const midia = [
+    { etapa:'Impressões',    v:mt.imp },
+    { etapa:'Alcance',       v:mt.alc },
+    { etapa:'Cliques',       v:mt.cli },
+    { etapa:'Leads (mídia)', v:mt.leads }
+  ];
+  const comercial = FUNIL.map(f=>({ etapa:f.etapa, v:bt[f.etapa] }));
+  const temMidia = midia.some(s=>s.v>0);
+
   document.getElementById('funnel-note').textContent =
-    'Fonte: aba B.I. (não excluir). Taxa à direita é a conversão da etapa anterior para esta.';
+    'Duas etapas com escalas muito diferentes, por isso cada bloco tem a própria escala: '+
+    'comparar barra de impressão com barra de oportunidade não diria nada. '+
+    'A taxa à direita é a conversão da etapa anterior para esta.';
 
-  document.getElementById('funnel').innerHTML = vals.map((s,i)=>{
-    const prev = i>0?vals[i-1].v:null;
-    const conv = (prev && prev>0) ? fmtPct(s.v/prev) : (i===0?'—':'—');
-    const w = max>0 ? Math.max((s.v/max)*100,0.4) : 0;
-    return `<div class="fstage">
-      <div class="fname">${s.etapa}</div>
-      <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${ord[i]})"></div></div>
-      <div class="fval">${fmtInt(s.v)}</div>
-      <div class="fconv">${conv}</div>
-    </div>`;
-  }).join('');
+  // desenha um bloco com escala própria (a primeira etapa vira 100%)
+  function bloco(titulo, etapas, fonte, vazio){
+    if(!etapas.some(s=>s.v>0))
+      return `<div class="fsub">${titulo}</div><div class="empty">${vazio}</div>`;
+    const base = Math.max(etapas[0].v, 1);
+    const linhas = etapas.map((s,i)=>{
+      const prev = i>0 ? etapas[i-1].v : null;
+      const conv = (prev && prev>0) ? fmtPct(s.v/prev) : '—';
+      const w = Math.max((s.v/base)*100, 0.4);
+      return `<div class="fstage">
+        <div class="fname">${s.etapa}</div>
+        <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${ord[i%ord.length]})"></div></div>
+        <div class="fval">${fmtInt(s.v)}</div>
+        <div class="fconv">${conv}</div>
+      </div>`;
+    }).join('');
+    return `<div class="fsub">${titulo}</div>${linhas}
+            <p class="h-note" style="margin-top:6px">${fonte}</p>`;
+  }
 
+  document.getElementById('funnel').innerHTML =
+    bloco('Mídia', midia, 'Fonte: meta_ads, só linhas de nível campanha.',
+          'Sem dados de mídia na planilha ainda.');
+
+  // ponte entre os dois blocos: quantos leads de mídia viraram contato no CRM
+  let ponte='';
+  if(temMidia && comercial[0].v>0 && mt.leads>0){
+    const r = comercial[0].v/mt.leads;
+    ponte = `<p class="h-note" style="margin-top:10px">`+
+      `Dos ${fmtInt(mt.leads)} leads registrados pela Meta, o comercial trabalhou `+
+      `${fmtInt(comercial[0].v)} contatos (${fmtPct(r)}). `+
+      `Diferença de mais de 100% significa lead entrando por canal que não é mídia paga; `+
+      `menos de 100% significa lead que a Meta contou e o CRM não recebeu.</p>`;
+  }
+
+  document.getElementById('funnel2').innerHTML = ponte +
+    bloco('Comercial', comercial, 'Fonte: aba B.I. (não excluir).',
+          'Sem dados comerciais no período.');
+
+  const todas = (temMidia ? midia.concat(comercial) : comercial);
   document.getElementById('funnel-table').innerHTML =
     `<thead><tr><th>Etapa</th><th>Volume</th><th>Conversão da etapa anterior</th></tr></thead><tbody>`+
-    vals.map((s,i)=>{
-      const prev=i>0?vals[i-1].v:null;
-      return `<tr><td>${s.etapa}</td><td>${fmtInt(s.v)}</td><td>${prev&&prev>0?fmtPct(s.v/prev):'—'}</td></tr>`;
+    todas.map((s,i)=>{
+      const primeiroComercial = temMidia && i===midia.length;
+      const prev = (i>0 && !primeiroComercial) ? todas[i-1].v : null;
+      return `<tr><td>${s.etapa}</td><td>${fmtInt(s.v)}</td>`+
+             `<td>${prev&&prev>0?fmtPct(s.v/prev):'—'}</td></tr>`;
     }).join('')+`</tbody>`;
 }
 
