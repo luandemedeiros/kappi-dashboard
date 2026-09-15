@@ -242,8 +242,12 @@ const FUNIL = [
 
 /* ===================== utilidades ===================== */
 
+// Endpoint de exportação direta: devolve o texto da célula como está na planilha.
+// O endpoint gviz foi abandonado porque ele infere tipo de coluna e devolve
+// cabeçalho vazio nas colunas numéricas (impressoes, alcance, cliques, leads),
+// o que fazia o dashboard ler zero em tudo que era número inteiro.
 const csvUrl = (id,gid) =>
-  `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&headers=0&gid=${gid}`;
+  `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
 
 function parseCSV(text){
   const rows=[]; let row=[], field='', q=false;
@@ -433,61 +437,55 @@ function renderFunil(meses){
     { etapa:'Cliques',       v:mt.cli },
     { etapa:'Leads (mídia)', v:mt.leads }
   ];
-  const comercial = FUNIL.map(f=>({ etapa:f.etapa, v:bt[f.etapa] }));
+  const comercial = FUNIL.map(f=>({ etapa:f.etapa, v:bt[f.etapa], bloco:'Comercial' }));
+  midia.forEach(s=>s.bloco='Mídia');
   const temMidia = midia.some(s=>s.v>0);
 
-  document.getElementById('funnel-note').textContent =
-    'Duas etapas com escalas muito diferentes, por isso cada bloco tem a própria escala: '+
-    'comparar barra de impressão com barra de oportunidade não diria nada. '+
-    'A taxa à direita é a conversão da etapa anterior para esta.';
+  // funil único: impressões até oportunidade ganha, uma escala só
+  const etapas = temMidia ? midia.concat(comercial) : comercial;
+  const base = Math.max(etapas[0].v, 1);
+  const cores = ['--ord-1','--ord-1','--ord-2','--ord-2','--ord-3','--ord-3','--ord-4','--ord-4','--ord-5'];
 
-  // desenha um bloco com escala própria (a primeira etapa vira 100%)
-  function bloco(titulo, etapas, fonte, vazio){
-    if(!etapas.some(s=>s.v>0))
-      return `<div class="fsub">${titulo}</div><div class="empty">${vazio}</div>`;
-    const base = Math.max(etapas[0].v, 1);
-    const linhas = etapas.map((s,i)=>{
-      const prev = i>0 ? etapas[i-1].v : null;
-      const conv = (prev && prev>0) ? fmtPct(s.v/prev) : '—';
-      const w = Math.max((s.v/base)*100, 0.4);
-      return `<div class="fstage">
-        <div class="fname">${s.etapa}</div>
-        <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${ord[i%ord.length]})"></div></div>
-        <div class="fval">${fmtInt(s.v)}</div>
-        <div class="fconv">${conv}</div>
-      </div>`;
-    }).join('');
-    return `<div class="fsub">${titulo}</div>${linhas}
-            <p class="h-note" style="margin-top:6px">${fonte}</p>`;
-  }
+  document.getElementById('funnel-note').textContent = temMidia
+    ? 'Da impressão à venda, escala única: cada barra é a fração da etapa inicial. '+
+      'As últimas etapas viram fios de tão pequenas, e é exatamente essa a informação — '+
+      'por isso o número e a taxa de conversão ficam sempre à direita, legíveis.'
+    : 'Fonte: aba B.I. (não excluir). Taxa à direita é a conversão da etapa anterior para esta.';
 
-  document.getElementById('funnel').innerHTML =
-    bloco('Mídia', midia, 'Fonte: meta_ads, só linhas de nível campanha.',
-          'Sem dados de mídia na planilha ainda.');
+  document.getElementById('funnel').innerHTML = etapas.map((s,i)=>{
+    const prev = i>0 ? etapas[i-1].v : null;
+    const conv = (prev && prev>0) ? fmtPct(s.v/prev) : '—';
+    const w = Math.max((s.v/base)*100, 0.35);
+    const cor = cores[i] || '--ord-5';
+    return `<div class="fstage">
+      <div class="fname">${s.etapa}</div>
+      <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${cor})"></div></div>
+      <div class="fval">${fmtInt(s.v)}</div>
+      <div class="fconv">${conv}</div>
+    </div>`;
+  }).join('');
 
-  // ponte entre os dois blocos: quantos leads de mídia viraram contato no CRM
+  // observação sobre a emenda entre mídia e CRM
   let ponte='';
   if(temMidia && comercial[0].v>0 && mt.leads>0){
-    const r = comercial[0].v/mt.leads;
     ponte = `<p class="h-note" style="margin-top:10px">`+
       `Dos ${fmtInt(mt.leads)} leads registrados pela Meta, o comercial trabalhou `+
-      `${fmtInt(comercial[0].v)} contatos (${fmtPct(r)}). `+
-      `Diferença de mais de 100% significa lead entrando por canal que não é mídia paga; `+
-      `menos de 100% significa lead que a Meta contou e o CRM não recebeu.</p>`;
+      `${fmtInt(comercial[0].v)} contatos (${fmtPct(comercial[0].v/mt.leads)}). `+
+      `Acima de 100% significa lead entrando por canal que não é mídia paga; `+
+      `abaixo, lead que a Meta contou e o CRM não recebeu. `+
+      `Impressões, alcance, cliques e leads vêm da aba meta_ads (só nível campanha); `+
+      `de contato em diante, da aba B.I.</p>`;
   }
+  document.getElementById('funnel2').innerHTML = ponte;
 
-  document.getElementById('funnel2').innerHTML = ponte +
-    bloco('Comercial', comercial, 'Fonte: aba B.I. (não excluir).',
-          'Sem dados comerciais no período.');
-
-  const todas = (temMidia ? midia.concat(comercial) : comercial);
   document.getElementById('funnel-table').innerHTML =
-    `<thead><tr><th>Etapa</th><th>Volume</th><th>Conversão da etapa anterior</th></tr></thead><tbody>`+
-    todas.map((s,i)=>{
-      const primeiroComercial = temMidia && i===midia.length;
-      const prev = (i>0 && !primeiroComercial) ? todas[i-1].v : null;
-      return `<tr><td>${s.etapa}</td><td>${fmtInt(s.v)}</td>`+
-             `<td>${prev&&prev>0?fmtPct(s.v/prev):'—'}</td></tr>`;
+    `<thead><tr><th>Etapa</th><th>Fonte</th><th>Volume</th><th>Conversão da etapa anterior</th>`+
+    `<th>% da etapa inicial</th></tr></thead><tbody>`+
+    etapas.map((s,i)=>{
+      const prev = i>0 ? etapas[i-1].v : null;
+      return `<tr><td>${s.etapa}</td><td>${s.bloco}</td><td>${fmtInt(s.v)}</td>`+
+             `<td>${prev&&prev>0?fmtPct(s.v/prev):'—'}</td>`+
+             `<td>${fmtPct(s.v/base)}</td></tr>`;
     }).join('')+`</tbody>`;
 }
 
@@ -681,12 +679,27 @@ function barChart(id,labels,values,color){
   });
 }
 
+// A aba meta_demografia recebe dois recortes diferentes da API: linhas de
+// idade/gênero (com localização vazia) e linhas de região (com idade e gênero
+// vazios). Linha com o campo vazio não pertence ao recorte e fica de fora,
+// senão cada gráfico ganha uma barra falsa de "(não informado)".
+const ROTULO_DEMO = {
+  male:'Masculino', female:'Feminino', unknown:'Não identificado',
+  'unknown ':'Não identificado', '13-17':'13 a 17', '18-24':'18 a 24',
+  '25-34':'25 a 34', '35-44':'35 a 44', '45-54':'45 a 54',
+  '55-64':'55 a 64', '65+':'65 ou mais'
+};
+
 function agrupaDemo(campo,meses,top){
   const set=new Set(meses), acc={};
-  DATA.demo.forEach(r=>{ if(!set.has(mesDe(r.data))) return;
-    const k=(r[campo]||'').trim()||'(não informado)';
-    acc[k]=(acc[k]||0)+num(r.leads); });
-  let arr=Object.entries(acc).sort((a,b)=>b[1]-a[1]);
+  DATA.demo.forEach(r=>{
+    if(!set.has(mesDe(r.data))) return;
+    const bruto=(r[campo]||'').trim();
+    if(!bruto) return;
+    const k = ROTULO_DEMO[bruto.toLowerCase()] || bruto;
+    acc[k]=(acc[k]||0)+num(r.leads);
+  });
+  let arr=Object.entries(acc).filter(a=>a[1]>0).sort((a,b)=>b[1]-a[1]);
   if(top) arr=arr.slice(0,top);
   return arr;
 }
@@ -698,6 +711,10 @@ function renderPublico(meses){
       const box=document.getElementById(id).parentElement;
       if(semDados){ box.innerHTML='<div class="empty">Sem dados de demografia ainda — aba meta_demografia vazia.</div>'; return; }
       const arr=agrupaDemo(campo,meses,top);
+      if(!arr.length){
+        box.innerHTML='<div class="empty">Nenhum lead com esse recorte no período selecionado.</div>';
+        return;
+      }
       barChart(id,arr.map(a=>a[0]),arr.map(a=>a[1]),cssv(cv));
     });
 
@@ -718,6 +735,11 @@ function renderPublico(meses){
     cells[k]=(cells[k]||0)+num(r.leads);
     if(cells[k]>max) max=cells[k];
   });
+  if(max===0){
+    heat.innerHTML='<div class="empty">A Meta não registrou nenhum lead por hora no período selecionado. '+
+      'A aba meta_horario cobre os últimos dias; escolha um período dentro dessa janela.</div>';
+    return;
+  }
   const steps=['--seq-1','--seq-2','--seq-3','--seq-4','--seq-5'];
   let html='<div class="scroll"><div class="hm">';
   html+='<div class="hl"></div>'+Array.from({length:24},(_,h)=>
