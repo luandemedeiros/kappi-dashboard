@@ -50,7 +50,7 @@ button{font:inherit;cursor:pointer}
 .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:18px}
 .field{display:flex;flex-direction:column;gap:4px}
 .field label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-muted)}
-select,input[type=text]{font:inherit;padding:6px 8px;background:var(--surface-1);color:var(--ink-1);
+select,input[type=text],input[type=number]{font:inherit;padding:6px 8px;background:var(--surface-1);color:var(--ink-1);
   border:1px solid var(--axis);border-radius:6px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px}
 .kpi{background:var(--surface-1);border:1px solid var(--ring);border-radius:10px;padding:13px 14px}
@@ -66,6 +66,26 @@ select,input[type=text]{font:inherit;padding:6px 8px;background:var(--surface-1)
 .fsub{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
       color:var(--ink-2);margin:14px 0 6px}
 .funnel:first-of-type .fsub{margin-top:4px}
+
+/* funil de simulação */
+.sim-top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:12px 0 4px}
+.sim-base{display:flex;flex-direction:column;gap:4px}
+.sim-base span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.sim-base input{width:180px}
+.btn{font:inherit;font-size:13px;padding:7px 12px;border-radius:7px;cursor:pointer;
+     background:var(--surface-1);color:var(--ink-1);border:1px solid var(--axis)}
+.btn:hover{background:var(--plane)}
+.sim-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px}
+.sim-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+         border:1px solid var(--ring);border-radius:8px;padding:8px 10px}
+.sim-row label{font-size:12px;color:var(--ink-2);line-height:1.3}
+.sim-row input{width:86px;text-align:right;font-variant-numeric:tabular-nums}
+.sim-sumario{display:flex;flex-wrap:wrap;gap:22px;margin-top:14px;
+             border-top:1px solid var(--grid);padding-top:12px}
+.sim-sumario div{display:flex;flex-direction:column;gap:2px}
+.sim-sumario .rot{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.sim-sumario .val{font-size:20px;font-weight:600;color:var(--ink-1)}
+@media (max-width:640px){ .sim-base input{width:100%} }
 .fstage{display:grid;grid-template-columns:150px 1fr 62px 62px;gap:10px;align-items:center}
 .fstage .fname{font-size:12px;color:var(--ink-2)}
 .ftrack{background:var(--plane);border-radius:4px;overflow:hidden;height:24px}
@@ -138,13 +158,45 @@ footer{color:var(--ink-muted);font-size:12px;margin-top:26px;border-top:1px soli
   <div class="kpis" id="kpis"></div>
 
   <div class="card">
-    <h2>Funil completo</h2>
+    <h2>Funil de marketing e vendas</h2>
     <p class="h-note" id="funnel-note"></p>
     <div class="funnel" id="funnel"></div>
     <div class="funnel" id="funnel2"></div>
     <details>
       <summary>Ver dados do funil em tabela</summary>
       <div class="scroll"><table id="funnel-table"></table></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Funil de simulação</h2>
+    <p class="h-note">Mexa no volume de entrada e nas taxas de conversão para projetar o funil inteiro.
+      Os campos vêm preenchidos com o desempenho real do período selecionado, então a primeira
+      leitura é o cenário de hoje. Nada aqui altera dado nenhum: é rascunho de cenário.</p>
+
+    <div class="sim-top">
+      <label class="sim-base">
+        <span>Impressões de entrada</span>
+        <input type="number" id="sim-base" min="0" step="1000">
+      </label>
+      <label class="sim-base">
+        <span>Dividir impressões e alcance por</span>
+        <select id="sim-div">
+          <option value="1">1 (valor cheio)</option>
+          <option value="10" selected>10</option>
+          <option value="100">100</option>
+          <option value="1000">1000</option>
+        </select>
+      </label>
+      <button type="button" id="sim-reset" class="btn">Voltar ao real do período</button>
+    </div>
+
+    <div class="sim-grid" id="sim-inputs"></div>
+    <div class="funnel" id="sim-funnel" style="margin-top:16px"></div>
+    <div id="sim-resumo"></div>
+    <details>
+      <summary>Ver simulação em tabela</summary>
+      <div class="scroll"><table id="sim-table"></table></div>
     </details>
   </div>
 
@@ -366,14 +418,15 @@ function janela(){
 // contaria o mesmo investimento três vezes.
 function metaTotais(meses){
   const set=new Set(meses);
-  let inv=0,leads=0,imp=0,cli=0,alc=0;
+  let inv=0,leads=0,imp=0,cli=0,alc=0,views=0;
   DATA.metaAds.forEach(r=>{
     if((r.nivel||'').toLowerCase()!=='campanha') return;
     if(!set.has(mesDe(r.data))) return;
     inv+=num(r.investido); leads+=num(r.leads); imp+=num(r.impressoes);
     cli+=num(r.cliques);   alc+=num(r.alcance);
+    views+=num(r.visualizacoes);
   });
-  return {inv,leads,imp,cli,alc};
+  return {inv,leads,imp,cli,alc,views};
 }
 
 function biTotais(meses){
@@ -427,65 +480,196 @@ function renderKPIs(meses){
 
 /* ===================== render: funil ===================== */
 
-function renderFunil(meses){
+function etapasFunil(meses){
   const bt=biTotais(meses), mt=metaTotais(meses);
-  const ord=['--ord-1','--ord-2','--ord-3','--ord-4','--ord-5'];
-
-  const midia = [
-    { etapa:'Impressões',    v:mt.imp },
-    { etapa:'Alcance',       v:mt.alc },
-    { etapa:'Cliques',       v:mt.cli },
-    { etapa:'Leads (mídia)', v:mt.leads }
+  const marketing = [
+    { etapa:'Impressões',              v:mt.imp   },
+    { etapa:'Alcance',                 v:mt.alc   },
+    { etapa:'Cliques',                 v:mt.cli   },
+    { etapa:'Visualizações da página', v:mt.views },
+    { etapa:'Leads',                   v:mt.leads }
   ];
-  const comercial = FUNIL.map(f=>({ etapa:f.etapa, v:bt[f.etapa], bloco:'Comercial' }));
-  midia.forEach(s=>s.bloco='Mídia');
-  const temMidia = midia.some(s=>s.v>0);
+  // Leads abre o funil de vendas: é a emenda entre a mídia e o CRM.
+  const vendas = [{ etapa:'Leads', v:mt.leads }]
+    .concat(FUNIL.map(f=>({ etapa:f.etapa, v:bt[f.etapa] })));
+  return { marketing, vendas, mt, bt };
+}
 
-  // funil único: impressões até oportunidade ganha, uma escala só
-  const etapas = temMidia ? midia.concat(comercial) : comercial;
-  const base = Math.max(etapas[0].v, 1);
-  const cores = ['--ord-1','--ord-1','--ord-2','--ord-2','--ord-3','--ord-3','--ord-4','--ord-4','--ord-5'];
+/* ===================== funil de simulação ===================== */
+// Etapas na ordem, com o divisor de exibição. Impressões e alcance entram no
+// gráfico divididos por 10 porque senão o resto do funil vira fio de cabelo;
+// o rótulo carrega o "÷10" para ninguém ler o número errado.
+const SIM_ETAPAS = [
+  { chave:'imp',    rotulo:'Impressões',              div:10, ajustavel:true },
+  { chave:'alc',    rotulo:'Alcance',                 div:10, ajustavel:true },
+  { chave:'cli',    rotulo:'Cliques',                 div:1  },
+  { chave:'views',  rotulo:'Visualizações da página', div:1  },
+  { chave:'leads',  rotulo:'Leads',                   div:1  },
+  { chave:'cont',   rotulo:'Contato',                 div:1  },
+  { chave:'conex',  rotulo:'Conexão',                 div:1  },
+  { chave:'qual',   rotulo:'Qualificação',            div:1  },
+  { chave:'reun',   rotulo:'Reunião',                 div:1  },
+  { chave:'opp',    rotulo:'Oportunidade ganha',      div:1  }
+];
 
-  document.getElementById('funnel-note').textContent = temMidia
-    ? 'Da impressão à venda, escala única: cada barra é a fração da etapa inicial. '+
-      'As últimas etapas viram fios de tão pequenas, e é exatamente essa a informação — '+
-      'por isso o número e a taxa de conversão ficam sempre à direita, legíveis.'
-    : 'Fonte: aba B.I. (não excluir). Taxa à direita é a conversão da etapa anterior para esta.';
+let SIM_PRONTO = false;
 
-  document.getElementById('funnel').innerHTML = etapas.map((s,i)=>{
-    const prev = i>0 ? etapas[i-1].v : null;
-    const conv = (prev && prev>0) ? fmtPct(s.v/prev) : '—';
-    const w = Math.max((s.v/base)*100, 0.35);
-    const cor = cores[i] || '--ord-5';
+// Taxas reais do período: cada etapa dividida pela anterior, em %.
+function simTaxasReais(meses){
+  const { marketing, vendas } = etapasFunil(meses);
+  const v = marketing.map(e=>e.v).concat(vendas.slice(1).map(e=>e.v));
+  const taxas = [];
+  for(let i=1;i<v.length;i++){
+    taxas.push(v[i-1] > 0 ? (v[i]/v[i-1])*100 : 0);
+  }
+  return { base: v[0], taxas };
+}
+
+function simPreencher(meses){
+  const { base, taxas } = simTaxasReais(meses);
+  document.getElementById('sim-base').value = Math.round(base);
+  SIM_ETAPAS.slice(1).forEach((e,i)=>{
+    const inp = document.getElementById('sim-t-'+e.chave);
+    if(inp) inp.value = (taxas[i]||0).toFixed(2);
+  });
+}
+
+function simMontarCampos(){
+  document.getElementById('sim-inputs').innerHTML = SIM_ETAPAS.slice(1).map((e,i)=>{
+    const de = SIM_ETAPAS[i].rotulo;
+    return `<div class="sim-row">
+      <label for="sim-t-${e.chave}">${de} para ${e.rotulo.toLowerCase()}</label>
+      <input type="number" id="sim-t-${e.chave}" min="0" step="0.01" inputmode="decimal"
+             aria-label="Taxa de ${de} para ${e.rotulo}"> <span>%</span>
+    </div>`;
+  }).join('');
+}
+
+function simCalcular(){
+  const base = Math.max(0, num(document.getElementById('sim-base').value));
+  const vals = [base];
+  SIM_ETAPAS.slice(1).forEach(e=>{
+    const t = Math.max(0, num((document.getElementById('sim-t-'+e.chave)||{}).value))/100;
+    vals.push(vals[vals.length-1] * t);
+  });
+  return vals;
+}
+
+function renderSimulacao(){
+  const vals = simCalcular();
+  const divisor = Math.max(1, num((document.getElementById('sim-div')||{}).value) || 10);
+  SIM_ETAPAS.forEach(e=>{ if(e.ajustavel) e.div = divisor; });
+  const ord=['--ord-1','--ord-1','--ord-2','--ord-2','--ord-3','--ord-3','--ord-4','--ord-4','--ord-5','--ord-5'];
+  const exib = vals.map((v,i)=>v/SIM_ETAPAS[i].div);
+  const base = Math.max(exib[0], 1);
+
+  document.getElementById('sim-funnel').innerHTML = SIM_ETAPAS.map((e,i)=>{
+    const rot = e.div>1 ? `${e.rotulo} ÷${e.div}` : e.rotulo;
+    const prev = i>0 ? vals[i-1] : null;
+    const conv = (prev && prev>0) ? fmtPct(vals[i]/prev) : '—';
+    const w = Math.max((exib[i]/base)*100, 0.4);
     return `<div class="fstage">
-      <div class="fname">${s.etapa}</div>
-      <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${cor})"></div></div>
-      <div class="fval">${fmtInt(s.v)}</div>
+      <div class="fname">${rot}</div>
+      <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${ord[i]})"></div></div>
+      <div class="fval">${fmtInt(Math.round(exib[i]))}</div>
       <div class="fconv">${conv}</div>
     </div>`;
   }).join('');
 
-  // observação sobre a emenda entre mídia e CRM
-  let ponte='';
-  if(temMidia && comercial[0].v>0 && mt.leads>0){
-    ponte = `<p class="h-note" style="margin-top:10px">`+
-      `Dos ${fmtInt(mt.leads)} leads registrados pela Meta, o comercial trabalhou `+
-      `${fmtInt(comercial[0].v)} contatos (${fmtPct(comercial[0].v/mt.leads)}). `+
-      `Acima de 100% significa lead entrando por canal que não é mídia paga; `+
-      `abaixo, lead que a Meta contou e o CRM não recebeu. `+
-      `Impressões, alcance, cliques e leads vêm da aba meta_ads (só nível campanha); `+
-      `de contato em diante, da aba B.I.</p>`;
-  }
-  document.getElementById('funnel2').innerHTML = ponte;
+  const opp = vals[vals.length-1];
+  const leads = vals[4];
+  const ticket = num(document.getElementById('ticket').value) || num(DATA.params.ticket_medio);
+  const receita = ticket>0 ? opp*ticket : null;
+  document.getElementById('sim-resumo').innerHTML = `<div class="sim-sumario">
+    <div><span class="rot">Leads projetados</span><span class="val">${fmtInt(Math.round(leads))}</span></div>
+    <div><span class="rot">Oportunidades ganhas</span><span class="val">${fmtDec(opp)}</span></div>
+    <div><span class="rot">Receita projetada</span><span class="val">${receita!=null?fmtBRL(receita):'—'}</span></div>
+    <div><span class="rot">Impressões por oportunidade</span><span class="val">${opp>0?fmtInt(Math.round(vals[0]/opp)):'—'}</span></div>
+  </div>`;
 
-  document.getElementById('funnel-table').innerHTML =
-    `<thead><tr><th>Etapa</th><th>Fonte</th><th>Volume</th><th>Conversão da etapa anterior</th>`+
-    `<th>% da etapa inicial</th></tr></thead><tbody>`+
-    etapas.map((s,i)=>{
+  document.getElementById('sim-table').innerHTML =
+    `<thead><tr><th>Etapa</th><th>Volume projetado</th><th>Exibido no gráfico</th>`+
+    `<th>Conversão da etapa anterior</th></tr></thead><tbody>`+
+    SIM_ETAPAS.map((e,i)=>{
+      const prev = i>0 ? vals[i-1] : null;
+      return `<tr><td>${e.rotulo}</td><td>${fmtInt(Math.round(vals[i]))}</td>`+
+             `<td>${e.div>1?fmtInt(Math.round(exib[i]))+' (÷'+e.div+')':'—'}</td>`+
+             `<td>${prev&&prev>0?fmtPct(vals[i]/prev):'—'}</td></tr>`;
+    }).join('')+`</tbody>`;
+}
+
+function simInit(meses){
+  if(!SIM_PRONTO){
+    simMontarCampos();
+    document.getElementById('sim-inputs').addEventListener('input', renderSimulacao);
+    document.getElementById('sim-base').addEventListener('input', renderSimulacao);
+    document.getElementById('sim-div').addEventListener('change', renderSimulacao);
+    document.getElementById('sim-reset').addEventListener('click', ()=>{
+      simPreencher(janela()); renderSimulacao();
+    });
+    simPreencher(meses);
+    SIM_PRONTO = true;
+  }
+  renderSimulacao();
+}
+
+function renderFunil(meses){
+  const { marketing, vendas, mt } = etapasFunil(meses);
+  const ord=['--ord-1','--ord-2','--ord-3','--ord-4','--ord-5','--ord-5'];
+  const temMidia = marketing.some(s=>s.v>0);
+
+  document.getElementById('funnel-note').textContent =
+    'Dois blocos com escala própria: impressão e oportunidade ganha não cabem no mesmo eixo. '+
+    'Leads fecha o funil de marketing e abre o de vendas, que é onde os dois se encontram. '+
+    'A taxa à direita é a conversão da etapa anterior para esta.';
+
+  function bloco(titulo, etapas, fonte, vazio){
+    if(!etapas.some(s=>s.v>0))
+      return `<div class="fsub">${titulo}</div><div class="empty">${vazio}</div>`;
+    const base = Math.max(etapas[0].v, 1);
+    const linhas = etapas.map((s,i)=>{
       const prev = i>0 ? etapas[i-1].v : null;
-      return `<tr><td>${s.etapa}</td><td>${s.bloco}</td><td>${fmtInt(s.v)}</td>`+
-             `<td>${prev&&prev>0?fmtPct(s.v/prev):'—'}</td>`+
-             `<td>${fmtPct(s.v/base)}</td></tr>`;
+      const conv = (prev && prev>0) ? fmtPct(s.v/prev) : '—';
+      const w = Math.max((s.v/base)*100, 0.4);
+      return `<div class="fstage">
+        <div class="fname">${s.etapa}</div>
+        <div class="ftrack"><div class="ffill" style="width:${w}%;background:var(${ord[i%ord.length]})"></div></div>
+        <div class="fval">${fmtInt(s.v)}</div>
+        <div class="fconv">${conv}</div>
+      </div>`;
+    }).join('');
+    return `<div class="fsub">${titulo}</div>${linhas}
+            <p class="h-note" style="margin-top:6px">${fonte}</p>`;
+  }
+
+  document.getElementById('funnel').innerHTML =
+    bloco('Funil de marketing', marketing,
+          'Fonte: aba meta_ads, só linhas de nível campanha. Visualizações da página vêm da '+
+          'ação landing_page_view da Meta, então campanha de formulário nativo não soma aqui.',
+          'Sem dados de mídia na planilha ainda.');
+
+  let ponte='';
+  if(temMidia && vendas[1] && vendas[1].v>0 && mt.leads>0){
+    ponte = `<p class="h-note" style="margin-top:12px">`+
+      `Dos ${fmtInt(mt.leads)} leads que a Meta registrou, o comercial trabalhou `+
+      `${fmtInt(vendas[1].v)} contatos (${fmtPct(vendas[1].v/mt.leads)}). `+
+      `Acima de 100% quer dizer lead entrando por canal que não é mídia paga; `+
+      `abaixo, lead que a Meta contou e o CRM não recebeu.</p>`;
+  }
+
+  document.getElementById('funnel2').innerHTML = ponte +
+    bloco('Funil de vendas', vendas, 'Fonte: aba B.I. (não excluir), a partir de Contato.',
+          'Sem dados comerciais no período.');
+
+  const linhas = marketing.map(s=>[ 'Marketing', s ])
+    .concat(vendas.slice(1).map(s=>[ 'Vendas', s ]));
+  document.getElementById('funnel-table').innerHTML =
+    `<thead><tr><th>Etapa</th><th>Funil</th><th>Volume</th>`+
+    `<th>Conversão da etapa anterior</th></tr></thead><tbody>`+
+    linhas.map(([bloco,s],i)=>{
+      const prev = i>0 ? linhas[i-1][1].v : null;
+      return `<tr><td>${s.etapa}</td><td>${bloco}</td><td>${fmtInt(s.v)}</td>`+
+             `<td>${prev&&prev>0?fmtPct(s.v/prev):'—'}</td></tr>`;
     }).join('')+`</tbody>`;
 }
 
@@ -765,7 +949,7 @@ function renderPublico(meses){
 // Cada bloco é isolado: se um quebrar, os outros continuam desenhando.
 function renderAll(){
   const meses=janela();
-  [['KPIs',renderKPIs],['funil',renderFunil],['séries',renderSeries],
+  [['KPIs',renderKPIs],['funil',renderFunil],['simulação',simInit],['séries',renderSeries],
    ['origem',renderOrigem],['mídia',renderMidia],['público',renderPublico]].forEach(([nome,fn])=>{
     try { fn(meses); }
     catch(e){ console.error('Falha ao renderizar '+nome+':',e); DATA.erros.push(nome); }
